@@ -1,0 +1,18 @@
+# STM32CubeIDE build output
+/Debug/
+/Release/
+
+# IDE / OS cruft
+.metadata/
+.osx.project
+.DS_Store
+
+# build artifacts (if built elsewhere)
+*.o
+*.d
+*.su
+*.elf
+*.map
+*.list
+*.bin
+*.hex
