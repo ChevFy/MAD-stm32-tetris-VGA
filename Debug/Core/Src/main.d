@@ -25,7 +25,9 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Drivers/STM32F7xx_HAL_Driver/Inc/stm32f7xx_hal_ltdc_ex.h \
  ../Drivers/STM32F7xx_HAL_Driver/Inc/stm32f7xx_hal_pwr.h \
  ../Drivers/STM32F7xx_HAL_Driver/Inc/stm32f7xx_hal_pwr_ex.h \
- ../Core/Inc/ltdc.h ../Core/Inc/main.h ../Core/Inc/gpio.h
+ ../Core/Inc/ltdc.h ../Core/Inc/main.h ../Core/Inc/gpio.h \
+ ../Core/Inc/proto.h ../Core/Inc/hub.h ../Core/Inc/proto.h \
+ ../Core/Inc/vga_draw.h ../Core/Inc/hub.h ../Core/Inc/hub_test.h
 ../Core/Inc/main.h:
 ../Drivers/STM32F7xx_HAL_Driver/Inc/stm32f7xx_hal.h:
 ../Core/Inc/stm32f7xx_hal_conf.h:
@@ -56,3 +58,9 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../Core/Inc/ltdc.h:
 ../Core/Inc/main.h:
 ../Core/Inc/gpio.h:
+../Core/Inc/proto.h:
+../Core/Inc/hub.h:
+../Core/Inc/proto.h:
+../Core/Inc/vga_draw.h:
+../Core/Inc/hub.h:
+../Core/Inc/hub_test.h:
