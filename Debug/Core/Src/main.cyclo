@@ -1,0 +1,7 @@
+../Core/Src/main.c:73:5:main	2
+../Core/Src/main.c:133:6:SystemClock_Config	4
+../Core/Src/main.c:183:6:VGA_Start	5
+../Core/Src/main.c:208:6:VGA_TestPattern	3
+../Core/Src/main.c:215:6:VGA_Pixel	3
+../Core/Src/main.c:224:6:MPU_Config	1
+../Core/Src/main.c:255:6:Error_Handler	1
