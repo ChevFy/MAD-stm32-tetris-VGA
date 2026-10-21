@@ -26,7 +26,6 @@
 #include "proto.h"
 #include "hub.h"
 #include "vga_draw.h"
-#include "hub_test.h"
 #include <stdio.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -58,16 +57,13 @@ uint32_t clut[256];
 /* Hub + protocol state (ported from mad-python-uart-simulation). */
 hub_t          g_hub;
 proto_parser_t g_parser;
-fake_board_t   g_fake;
 
-/* UART3 RX ring buffer, filled by USART3_IRQHandler. */
+/* UART RX ring buffer, filled by USART6_IRQHandler. */
 #define RX_RING_SIZE 1024
 volatile uint8_t  rx_ring[RX_RING_SIZE];
 volatile uint16_t rx_head, rx_tail;
 
-uint32_t g_last_real_pkt;   /* tick of last packet from a real board */
 int      g_show_debug;      /* toggled by the user button (B1/PC13) */
-int      g_test_passed, g_test_total, g_selftest_rc;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -77,7 +73,7 @@ void VGA_Pixel(int x, int y, uint8_t c);
 void VGA_TestPattern(void);
 void VGA_Start(void);
 /* USER CODE BEGIN PFP */
-static void USART3_Init(uint32_t baud);
+static void USART6_Init(uint32_t baud);
 static void uart_send(const uint8_t *pkt, int len, void *ctx);
 static void on_packet(uint8_t type, const uint8_t *payload, uint8_t len,
                       void *ctx);
@@ -127,39 +123,18 @@ int main(void)
   LTDC->BCCR = 0x00000000;        /* พื้นหลังดำ */
   LTDC->SRCR = LTDC_SRCR_IMR;
 
-  /* --- on-boot tests (ported from the Python tools) --- */
-  g_selftest_rc = hub_selftest();
-  hub_lobby_tests(&g_test_passed, &g_test_total);
-
-  vga_clear(VGA_BLACK);
-  vga_text_center("VGA HUB  SELF TEST", VGA_W / 2, 110, VGA_WHITE,
-                  VGA_FONT_NORMAL);
-  vga_text_center(g_selftest_rc == 0 ? "PARSER: PASS" : "PARSER: FAIL",
-                  VGA_W / 2, 170,
-                  g_selftest_rc == 0 ? VGA_GREEN : VGA_RED, VGA_FONT_NORMAL);
-  {
-    char b[32];
-    snprintf(b, sizeof(b), "LOBBY: %d/%d", g_test_passed, g_test_total);
-    vga_text_center(b, VGA_W / 2, 210,
-                    (g_test_passed == g_test_total) ? VGA_GREEN : VGA_RED,
-                    VGA_FONT_NORMAL);
-  }
-  HAL_Delay(2500);
-
-  /* --- protocol + hub + UART --- */
-  USART3_Init(921600);
+  /* --- protocol + hub + UART: boot straight into the lobby --- */
+  USART6_Init(921600);
   proto_parser_init(&g_parser);
   hub_init(&g_hub, uart_send, NULL);
   hub_seed_rng(&g_hub, HAL_GetTick() ^ 0xA5A5u);
-  fake_board_init(&g_fake, 0xC0FFEEu);
-  g_last_real_pkt = 0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   __HAL_RCC_GPIOB_CLK_ENABLE();
   GPIO_InitTypeDef led = {0};
-  led.Pin  = GPIO_PIN_7;              /* LD2 สีน้ำเงิน = liveness */
+  led.Pin  = GPIO_PIN_7;              /* LD2 สีน้ำเงิน = UART RX indicator */
   led.Mode = GPIO_MODE_OUTPUT_PP;
   HAL_GPIO_Init(GPIOB, &led);
 
@@ -171,8 +146,9 @@ int main(void)
   btn.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &btn);
 
-  uint32_t last_render = 0, last_blink = 0, cpsr_prev = 0;
-  int btn_prev = 0;
+  uint32_t last_render = 0, last_rx = 0;
+  int btn_prev = 0, rx_ever = 0;
+  const uint32_t RX_LED_HOLD_MS = 150;   /* keep PB7 lit this long after a byte */
 
   while (1)
   {
@@ -183,22 +159,20 @@ int main(void)
       uint8_t b = rx_ring[rx_tail];
       rx_tail = (uint16_t)((rx_tail + 1) % RX_RING_SIZE);
       proto_parser_feed_byte(&g_parser, b, on_packet, on_text, &now);
+      last_rx = now;        /* any byte in -> flag RX activity for PB7 */
+      rx_ever = 1;
     }
 
-    /* 2) no real traffic -> run the fake board so the screen shows a demo */
-    if (now - g_last_real_pkt > 2000)
-      fake_board_step(&g_fake, &g_hub, now);
-
-    /* 3) time-based lobby + debug window */
+    /* 2) time-based lobby + debug window */
     hub_debug_tick_window(&g_hub.stats, now);
     hub_update(&g_hub, now);
 
-    /* 4) debug-panel toggle on button press edge */
+    /* 3) debug-panel toggle on button press edge */
     int btn_now = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13) == GPIO_PIN_SET;
     if (btn_now && !btn_prev) g_show_debug = !g_show_debug;
     btn_prev = btn_now;
 
-    /* 5) render ~30 fps */
+    /* 4) render ~30 fps */
     if (now - last_render >= 33) {
       last_render = now;
       g_hub.stats.crc_errors    = g_parser.crc_errors;
@@ -206,14 +180,10 @@ int main(void)
       vga_render(&g_hub, g_show_debug, now);
     }
 
-    /* 6) LED liveness tied to LTDC scanning */
-    if (now - last_blink >= 200) {
-      last_blink = now;
-      uint32_t c = LTDC->CPSR;
-      if (c != cpsr_prev) HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_7);
-      else                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET);
-      cpsr_prev = c;
-    }
+    /* 5) PB7 = UART RX indicator: lit while bytes are arriving, off when idle */
+    int rx_active = rx_ever && (now - last_rx < RX_LED_HOLD_MS);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7,
+                      rx_active ? GPIO_PIN_SET : GPIO_PIN_RESET);
   }
   /* USER CODE END 3 */
 }
@@ -310,28 +280,29 @@ void VGA_Pixel(int x, int y, uint8_t c)
     framebuffer[y * FB_W + x] = c;
 }
 
-/* --- USART3 (ST-LINK VCP on PD8/PD9, AF7) at register level --------------- */
-/* HAL UART driver sources are not in this project, so configure directly. */
-static void USART3_Init(uint32_t baud)
+/* --- USART6 (PG14 TX / PG9 RX, AF8) at register level --------------------- */
+/* HAL UART driver sources are not in this project, so configure directly.
+ * PG14/PG9 break out on the morpho header (free, not the ST-LINK VCP). */
+static void USART6_Init(uint32_t baud)
 {
-  RCC->AHB1ENR |= RCC_AHB1ENR_GPIODEN;
-  RCC->APB1ENR |= RCC_APB1ENR_USART3EN;
-  (void)RCC->APB1ENR;   /* ensure the clock is up before touching the regs */
+  RCC->AHB1ENR |= RCC_AHB1ENR_GPIOGEN;
+  RCC->APB2ENR |= RCC_APB2ENR_USART6EN;   /* USART6 lives on APB2 */
+  (void)RCC->APB2ENR;   /* ensure the clock is up before touching the regs */
 
-  /* PD8 = TX, PD9 = RX -> alternate function 7 */
-  GPIOD->MODER   &= ~((3u << (8 * 2)) | (3u << (9 * 2)));
-  GPIOD->MODER   |=  ((2u << (8 * 2)) | (2u << (9 * 2)));
-  GPIOD->OSPEEDR |=  ((3u << (8 * 2)) | (3u << (9 * 2)));
-  GPIOD->AFR[1]  &= ~((0xFu << (0 * 4)) | (0xFu << (1 * 4)));  /* pins 8,9 */
-  GPIOD->AFR[1]  |=  ((7u   << (0 * 4)) | (7u   << (1 * 4)));
+  /* PG14 = TX, PG9 = RX -> alternate function 8 */
+  GPIOG->MODER   &= ~((3u << (14 * 2)) | (3u << (9 * 2)));
+  GPIOG->MODER   |=  ((2u << (14 * 2)) | (2u << (9 * 2)));
+  GPIOG->OSPEEDR |=  ((3u << (14 * 2)) | (3u << (9 * 2)));
+  GPIOG->AFR[1]  &= ~((0xFu << ((14 - 8) * 4)) | (0xFu << ((9 - 8) * 4)));
+  GPIOG->AFR[1]  |=  ((8u   << ((14 - 8) * 4)) | (8u   << ((9 - 8) * 4)));
 
-  USART3->CR1 = 0;
-  USART3->BRR = (HAL_RCC_GetPCLK1Freq() + baud / 2) / baud;
-  USART3->CR1 = USART_CR1_TE | USART_CR1_RE | USART_CR1_RXNEIE;
-  USART3->CR1 |= USART_CR1_UE;
+  USART6->CR1 = 0;
+  USART6->BRR = (HAL_RCC_GetPCLK2Freq() + baud / 2) / baud;   /* APB2 clock! */
+  USART6->CR1 = USART_CR1_TE | USART_CR1_RE | USART_CR1_RXNEIE;
+  USART6->CR1 |= USART_CR1_UE;
 
-  HAL_NVIC_SetPriority(USART3_IRQn, 6, 0);
-  HAL_NVIC_EnableIRQ(USART3_IRQn);
+  HAL_NVIC_SetPriority(USART6_IRQn, 6, 0);
+  HAL_NVIC_EnableIRQ(USART6_IRQn);
 }
 
 /* Hub send callback: blocking transmit of a framed packet. */
@@ -339,10 +310,10 @@ static void uart_send(const uint8_t *pkt, int len, void *ctx)
 {
   (void)ctx;
   for (int i = 0; i < len; i++) {
-    while (!(USART3->ISR & USART_ISR_TXE)) { }
-    USART3->TDR = pkt[i];
+    while (!(USART6->ISR & USART_ISR_TXE)) { }
+    USART6->TDR = pkt[i];
   }
-  while (!(USART3->ISR & USART_ISR_TC)) { }
+  while (!(USART6->ISR & USART_ISR_TC)) { }
 }
 
 /* Parser callbacks (real board path). */
@@ -350,7 +321,6 @@ static void on_packet(uint8_t type, const uint8_t *payload, uint8_t len,
                       void *ctx)
 {
   uint32_t now = *(uint32_t *)ctx;
-  g_last_real_pkt = now;
   hub_handle(&g_hub, type, payload, len, now);
 }
 
@@ -359,13 +329,13 @@ static void on_text(uint8_t b, void *ctx)
   (void)b; (void)ctx;   /* board printf noise: ignored on the display */
 }
 
-/* USART3 RX interrupt: push bytes into the ring, clear overrun. */
-void USART3_IRQHandler(void)
+/* USART6 RX interrupt: push bytes into the ring, clear overrun. */
+void USART6_IRQHandler(void)
 {
-  uint32_t isr = USART3->ISR;
-  if (isr & USART_ISR_ORE) USART3->ICR = USART_ICR_ORECF;
+  uint32_t isr = USART6->ISR;
+  if (isr & USART_ISR_ORE) USART6->ICR = USART_ICR_ORECF;
   if (isr & USART_ISR_RXNE) {
-    uint8_t b = (uint8_t)USART3->RDR;
+    uint8_t b = (uint8_t)USART6->RDR;
     uint16_t next = (uint16_t)((rx_head + 1) % RX_RING_SIZE);
     if (next != rx_tail) {
       rx_ring[rx_head] = b;
