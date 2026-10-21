@@ -24,5 +24,9 @@ C_DEPS :=
 SUBDIRS := \
 Core/Src \
 Core/Startup \
+Core/display \
+Core/hub \
+Core/protocol \
+Core/tests \
 Drivers/STM32F7xx_HAL_Driver/Src \
 
