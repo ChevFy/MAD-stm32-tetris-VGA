@@ -97,6 +97,21 @@ void proto_parse_state(const uint8_t *payload, proto_state_t *out)
   out->garbage_wait = payload[111];
 }
 
+void proto_parse_credit(const uint8_t *payload, proto_credit_t *out)
+{
+  out->status  = payload[0];
+  out->balance = (int32_t)get_u32(&payload[1]);
+}
+
+void proto_parse_leaderboard(const uint8_t *payload, proto_lb_t *out)
+{
+  out->rank   = payload[0];
+  out->count  = payload[1];
+  out->points = get_u32(&payload[2]);
+  memcpy(out->name, &payload[6], 16);
+  out->name[16] = '\0';
+}
+
 uint8_t proto_parse_attack(const uint8_t *payload)
 {
   return payload[0];
@@ -117,6 +132,8 @@ int proto_expected_len(uint8_t type)
     case PROTO_TYPE_ATTACK:    return PROTO_LEN_ATTACK;
     case PROTO_TYPE_GAMEOVER:  return 0;
     case PROTO_TYPE_SKIP_WAIT: return 0;
+    case PROTO_TYPE_CREDIT:    return PROTO_LEN_CREDIT;
+    case PROTO_TYPE_LEADERBOARD: return PROTO_LEN_LEADERBOARD;
     default:                   return -1;
   }
 }
@@ -129,6 +146,8 @@ const char *proto_type_name(uint8_t type)
     case PROTO_TYPE_ATTACK:    return "ATTACK";
     case PROTO_TYPE_GAMEOVER:  return "GAMEOVER";
     case PROTO_TYPE_SKIP_WAIT: return "SKIP_WAIT";
+    case PROTO_TYPE_CREDIT:    return "CREDIT";
+    case PROTO_TYPE_LEADERBOARD: return "LEADERBOARD";
     case PROTO_TYPE_START:     return "START";
     case PROTO_TYPE_ATTACK_TX: return "ATTACK_TX";
     case PROTO_TYPE_RESULT:    return "RESULT";

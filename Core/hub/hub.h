@@ -36,6 +36,13 @@ enum { T_PARTNER_WAIT = 0, T_COUNTDOWN, T_RESULT_SHOW, T_ALIVE_TIMEOUT, T_COUNT 
 #define HUB_WARN_SLOTS  8
 #define HUB_WARN_LEN    56
 
+#define HUB_LB_MAX      8   /* leaderboard rows kept for display */
+
+typedef struct {
+  char     name[17];
+  uint32_t points;
+} hub_lb_entry_t;
+
 /* Debug statistics for the Debug panel. */
 typedef struct {
   uint32_t pkt_window[8];   /* per-type count this second */
@@ -80,6 +87,13 @@ typedef struct {
   int           skip_count;
   char          attack_msg[32];
   uint32_t      attack_msg_time;
+  int32_t       credit_balance;  /* last known account balance (from CREDIT) */
+  int           credit_known;    /* 1 once any CREDIT packet has been seen */
+  uint32_t      deny_time;       /* tick of last denied tap; 0 = none */
+  int           deny_reason;     /* PROTO_CREDIT_DENIED / _NO_CARD */
+  int           credit_ok;       /* 1 = paid & ready to start (gate open) */
+  hub_lb_entry_t lb[HUB_LB_MAX]; /* leaderboard rows (from LEADERBOARD pkts) */
+  int           lb_count;        /* how many rows valid */
   uint32_t      timings[T_COUNT];
   hub_debug_t   stats;
   hub_send_fn   send;

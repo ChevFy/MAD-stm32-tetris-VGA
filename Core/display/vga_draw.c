@@ -211,11 +211,20 @@ static void column_header(void)
   vga_vline(VGA_W / 2, 30, VGA_H - 90, VGA_GREY);
 }
 
-static void draw_lobby_idle(void)
+static void draw_lobby_idle(const hub_t *h)
 {
-  column_header();
-  vga_text_center("PRESS ANY BUTTON", VGA_W / 4, 120, VGA_GREY, VGA_FONT_NORMAL);
-  vga_text_center("PRESS ANY BUTTON", 3 * VGA_W / 4, 120, VGA_GREY, VGA_FONT_NORMAL);
+  vga_text_center("TETRIS", VGA_W / 2, 70, VGA_WHITE, VGA_FONT_BIG);
+
+  if (h->credit_ok) {
+    vga_text_center("READY TO PLAY", VGA_W / 2, 175, VGA_GREEN, VGA_FONT_BIG);
+    vga_text_center("PRESS START TO BEGIN", VGA_W / 2, 235, VGA_WHITE,
+                    VGA_FONT_NORMAL);
+  } else {
+    vga_text_center("TAP YOUR CARD TO PLAY", VGA_W / 2, 185, VGA_YELLOW,
+                    VGA_FONT_NORMAL);
+    vga_text_center("PLACE CARD ON THE READER", VGA_W / 2, 225, VGA_GREY,
+                    VGA_FONT_SMALL);
+  }
 }
 
 static void draw_wait_partner(const hub_t *h, uint32_t now)
@@ -253,25 +262,42 @@ static void draw_countdown(const hub_t *h, uint32_t now)
   vga_text_center(buf, VGA_W / 2, 180, VGA_YELLOW, VGA_FONT_HUGE);
 }
 
+static void draw_leaderboard(const hub_t *h, int y)
+{
+  vga_text_center("LEADERBOARD", VGA_W / 2, y, VGA_YELLOW, VGA_FONT_NORMAL);
+  if (h->lb_count <= 0) {
+    vga_text_center("(no scores yet)", VGA_W / 2, y + 28, VGA_GREY,
+                    VGA_FONT_SMALL);
+    return;
+  }
+  for (int i = 0; i < h->lb_count && i < HUB_LB_MAX; i++) {
+    char buf[40];
+    snprintf(buf, sizeof(buf), "%d. %-10s %lu",
+             i + 1, h->lb[i].name, (unsigned long)h->lb[i].points);
+    vga_text_center(buf, VGA_W / 2, y + 26 + i * 20,
+                    i == 0 ? VGA_GREEN : VGA_WHITE, VGA_FONT_SMALL);
+  }
+}
+
 static void draw_result_show(const hub_t *h)
 {
-  column_header();
   const int cx[2] = { VGA_W / 4, 3 * VGA_W / 4 };
   for (int i = 0; i < 2; i++) {
     int p = i + 1;
     const hub_side_t *side = &h->sides[p];
     if (side->result < 0 && !side->has_state) continue;
     if (side->result == RESULT_WIN)
-      vga_text_center("WIN!", cx[i], 120, VGA_GREEN, VGA_FONT_BIG);
+      vga_text_center("WIN!", cx[i], 60, VGA_GREEN, VGA_FONT_BIG);
     else if (side->result == RESULT_LOSE)
-      vga_text_center("LOSE", cx[i], 120, VGA_RED, VGA_FONT_BIG);
+      vga_text_center("LOSE", cx[i], 60, VGA_RED, VGA_FONT_BIG);
     else
-      vga_text_center("GAME OVER", cx[i], 120, VGA_YELLOW, VGA_FONT_NORMAL);
+      vga_text_center("GAME OVER", cx[i], 60, VGA_YELLOW, VGA_FONT_NORMAL);
     char buf[24];
     uint32_t score = side->has_state ? side->last_state.score : 0;
     snprintf(buf, sizeof(buf), "SCORE %lu", (unsigned long)score);
-    vga_text_center(buf, cx[i], 180, VGA_WHITE, VGA_FONT_NORMAL);
+    vga_text_center(buf, cx[i], 110, VGA_WHITE, VGA_FONT_NORMAL);
   }
+  draw_leaderboard(h, 170);
 }
 
 static const char *lobby_name(lobby_state_t s)
@@ -334,6 +360,37 @@ static void draw_debug(const hub_t *h, uint32_t now)
   }
 }
 
+/* --- credit / pay overlay ------------------------------------------------- */
+
+#define CREDIT_DENY_MS 3000   /* how long the red "not enough" banner stays */
+
+static void draw_credit(const hub_t *h, uint32_t now)
+{
+  if (h->credit_known && h->credit_balance > 0) {
+    char buf[24];
+    snprintf(buf, sizeof(buf), "BALANCE: %ld", (long)h->credit_balance);
+    vga_text(buf, 20, 8, VGA_GREEN, VGA_FONT_NORMAL);
+  }
+
+  /* transient red overlay after a denied tap */
+  if (h->deny_time && now - h->deny_time < CREDIT_DENY_MS) {
+    const int bw = 380, bh = 96;
+    const int bx = (VGA_W - bw) / 2, by = (VGA_H - bh) / 2;
+    const char *title, *hint;
+    if (h->deny_reason == PROTO_CREDIT_NO_CARD) {
+      title = "UNKNOWN CARD";
+      hint  = "CARD NOT REGISTERED";
+    } else {
+      title = "NOT ENOUGH CREDIT";
+      hint  = "TAP A CARD WITH BALANCE";
+    }
+    vga_fill_rect(bx, by, bw, bh, VGA_RED);
+    vga_rect(bx, by, bw, bh, VGA_WHITE);
+    vga_text_center(title, VGA_W / 2, by + 22, VGA_WHITE, VGA_FONT_BIG);
+    vga_text_center(hint, VGA_W / 2, by + 62, VGA_WHITE, VGA_FONT_SMALL);
+  }
+}
+
 /* --- main ----------------------------------------------------------------- */
 
 void vga_render(const hub_t *h, int show_debug, uint32_t now)
@@ -341,7 +398,7 @@ void vga_render(const hub_t *h, int show_debug, uint32_t now)
   vga_clear(VGA_DARK);
 
   switch (h->lobby) {
-    case LOBBY_IDLE:   draw_lobby_idle();            break;
+    case LOBBY_IDLE:   draw_lobby_idle(h);           break;
     case WAIT_PARTNER: draw_wait_partner(h, now);    break;
     case COUNTDOWN:    draw_countdown(h, now);       break;
     case PLAYING:      draw_playing(h, now);         break;
@@ -373,6 +430,8 @@ void vga_render(const hub_t *h, int show_debug, uint32_t now)
   snprintf(status, sizeof(status), "HUB: %s  MODE:%d",
            lobby_name(h->lobby), h->mode);
   vga_text(status, 20, VGA_H - 24, VGA_GREY, VGA_FONT_SMALL);
+
+  draw_credit(h, now);
 
   if (show_debug) draw_debug(h, now);
 }

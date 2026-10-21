@@ -248,6 +248,7 @@ static void on_join(hub_t *h, const proto_join_t *join, uint32_t now)
   if (h->lobby == LOBBY_IDLE) {
     h->lobby = WAIT_PARTNER;
     h->deadline = now + h->timings[T_PARTNER_WAIT];
+    h->credit_ok = 0;            /* game starting: clear the "ready" banner */
   } else if (h->lobby == WAIT_PARTNER) {
     if (ready_count(h) == 2) {
       h->mode = 2;
@@ -315,6 +316,45 @@ static void on_gameover(hub_t *h, uint32_t now)
 void hub_handle(hub_t *h, uint8_t type, const uint8_t *payload, uint8_t len,
                 uint32_t now)
 {
+  /* CREDIT is display-only and not one of the 8 debug slots: handle it up
+   * front so it never trips the unknown-type gate or the slot stats. */
+  if (type == PROTO_TYPE_CREDIT) {
+    if (len != PROTO_LEN_CREDIT) {
+      char buf[HUB_WARN_LEN];
+      snprintf(buf, sizeof(buf), "CREDIT LEN %d != %d", len, PROTO_LEN_CREDIT);
+      hub_warn(&h->stats, buf);
+      return;
+    }
+    proto_credit_t c;
+    proto_parse_credit(payload, &c);
+    h->credit_known   = 1;
+    h->credit_balance = c.balance;
+    h->stats.last_pkt_time = now;
+    if (c.status == PROTO_CREDIT_OK) {
+      h->credit_ok = 1;          /* paid: gate open, ready to start */
+    } else {
+      h->credit_ok   = 0;
+      h->deny_time   = now;
+      h->deny_reason = c.status;
+    }
+    return;
+  }
+
+  /* LEADERBOARD: one row per packet; store by rank for the result screen. */
+  if (type == PROTO_TYPE_LEADERBOARD) {
+    if (len == PROTO_LEN_LEADERBOARD) {
+      proto_lb_t row;
+      proto_parse_leaderboard(payload, &row);
+      if (row.rank < HUB_LB_MAX) {
+        memcpy(h->lb[row.rank].name, row.name, sizeof(h->lb[row.rank].name));
+        h->lb[row.rank].points = row.points;
+      }
+      h->lb_count = (row.count < HUB_LB_MAX) ? row.count : HUB_LB_MAX;
+      h->stats.last_pkt_time = now;
+    }
+    return;
+  }
+
   if (type_index(type) < 0) {
     h->stats.unknown_types++;
     char buf[HUB_WARN_LEN];
