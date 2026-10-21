@@ -249,6 +249,7 @@ static void on_join(hub_t *h, const proto_join_t *join, uint32_t now)
     h->lobby = WAIT_PARTNER;
     h->deadline = now + h->timings[T_PARTNER_WAIT];
     h->credit_ok = 0;            /* game starting: clear the "ready" banner */
+    h->new_record = 0;           /* clear last game's NEW RECORD flag */
   } else if (h->lobby == WAIT_PARTNER) {
     if (ready_count(h) == 2) {
       h->mode = 2;
@@ -329,9 +330,11 @@ void hub_handle(hub_t *h, uint8_t type, const uint8_t *payload, uint8_t len,
     proto_parse_credit(payload, &c);
     h->credit_known   = 1;
     h->credit_balance = c.balance;
+    h->credit_spent   = c.spent;
     h->stats.last_pkt_time = now;
     if (c.status == PROTO_CREDIT_OK) {
       h->credit_ok = 1;          /* paid: gate open, ready to start */
+      h->credit_time = now;      /* start the timed BALANCE banner */
     } else {
       h->credit_ok   = 0;
       h->deny_time   = now;
@@ -350,6 +353,16 @@ void hub_handle(hub_t *h, uint8_t type, const uint8_t *payload, uint8_t len,
         h->lb[row.rank].points = row.points;
       }
       h->lb_count = (row.count < HUB_LB_MAX) ? row.count : HUB_LB_MAX;
+      h->stats.last_pkt_time = now;
+    }
+    return;
+  }
+
+  /* NEWRECORD: member beat their high score this game. */
+  if (type == PROTO_TYPE_NEWRECORD) {
+    if (len == PROTO_LEN_NEWRECORD) {
+      h->new_record    = 1;
+      h->record_points = proto_parse_newrecord(payload);
       h->stats.last_pkt_time = now;
     }
     return;

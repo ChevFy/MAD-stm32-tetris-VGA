@@ -101,6 +101,7 @@ void proto_parse_credit(const uint8_t *payload, proto_credit_t *out)
 {
   out->status  = payload[0];
   out->balance = (int32_t)get_u32(&payload[1]);
+  out->spent   = (int32_t)get_u32(&payload[5]);
 }
 
 void proto_parse_leaderboard(const uint8_t *payload, proto_lb_t *out)
@@ -110,6 +111,11 @@ void proto_parse_leaderboard(const uint8_t *payload, proto_lb_t *out)
   out->points = get_u32(&payload[2]);
   memcpy(out->name, &payload[6], 16);
   out->name[16] = '\0';
+}
+
+uint32_t proto_parse_newrecord(const uint8_t *payload)
+{
+  return get_u32(payload);
 }
 
 uint8_t proto_parse_attack(const uint8_t *payload)
@@ -134,6 +140,7 @@ int proto_expected_len(uint8_t type)
     case PROTO_TYPE_SKIP_WAIT: return 0;
     case PROTO_TYPE_CREDIT:    return PROTO_LEN_CREDIT;
     case PROTO_TYPE_LEADERBOARD: return PROTO_LEN_LEADERBOARD;
+    case PROTO_TYPE_NEWRECORD: return PROTO_LEN_NEWRECORD;
     default:                   return -1;
   }
 }
@@ -148,6 +155,7 @@ const char *proto_type_name(uint8_t type)
     case PROTO_TYPE_SKIP_WAIT: return "SKIP_WAIT";
     case PROTO_TYPE_CREDIT:    return "CREDIT";
     case PROTO_TYPE_LEADERBOARD: return "LEADERBOARD";
+    case PROTO_TYPE_NEWRECORD: return "NEWRECORD";
     case PROTO_TYPE_START:     return "START";
     case PROTO_TYPE_ATTACK_TX: return "ATTACK_TX";
     case PROTO_TYPE_RESULT:    return "RESULT";

@@ -281,23 +281,38 @@ static void draw_leaderboard(const hub_t *h, int y)
 
 static void draw_result_show(const hub_t *h)
 {
-  const int cx[2] = { VGA_W / 4, 3 * VGA_W / 4 };
-  for (int i = 0; i < 2; i++) {
-    int p = i + 1;
+  /* count sides that actually played, to center a single player */
+  int shown = 0;
+  for (int p = 1; p <= 2; p++)
+    if (!(h->sides[p].result < 0 && !h->sides[p].has_state)) shown++;
+
+  const int cx2[2] = { VGA_W / 4, 3 * VGA_W / 4 };
+  int idx = 0;
+  for (int p = 1; p <= 2; p++) {
     const hub_side_t *side = &h->sides[p];
     if (side->result < 0 && !side->has_state) continue;
+    int cx = (shown == 1) ? VGA_W / 2 : cx2[idx++];
     if (side->result == RESULT_WIN)
-      vga_text_center("WIN!", cx[i], 60, VGA_GREEN, VGA_FONT_BIG);
+      vga_text_center("WIN!", cx, 60, VGA_GREEN, VGA_FONT_BIG);
     else if (side->result == RESULT_LOSE)
-      vga_text_center("LOSE", cx[i], 60, VGA_RED, VGA_FONT_BIG);
+      vga_text_center("LOSE", cx, 60, VGA_RED, VGA_FONT_BIG);
     else
-      vga_text_center("GAME OVER", cx[i], 60, VGA_YELLOW, VGA_FONT_NORMAL);
+      vga_text_center("GAME OVER", cx, 60, VGA_YELLOW, VGA_FONT_NORMAL);
     char buf[24];
     uint32_t score = side->has_state ? side->last_state.score : 0;
     snprintf(buf, sizeof(buf), "SCORE %lu", (unsigned long)score);
-    vga_text_center(buf, cx[i], 110, VGA_WHITE, VGA_FONT_NORMAL);
+    vga_text_center(buf, cx, 110, VGA_WHITE, VGA_FONT_NORMAL);
   }
-  draw_leaderboard(h, 170);
+
+  int lb_y = 170;
+  if (h->new_record) {
+    char buf[32];
+    vga_text_center("NEW HIGH SCORE!", VGA_W / 2, 150, VGA_GREEN, VGA_FONT_BIG);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)h->record_points);
+    vga_text_center(buf, VGA_W / 2, 200, VGA_YELLOW, VGA_FONT_NORMAL);
+    lb_y = 240;
+  }
+  draw_leaderboard(h, lb_y);
 }
 
 static const char *lobby_name(lobby_state_t s)
@@ -363,13 +378,19 @@ static void draw_debug(const hub_t *h, uint32_t now)
 /* --- credit / pay overlay ------------------------------------------------- */
 
 #define CREDIT_DENY_MS 3000   /* how long the red "not enough" banner stays */
+#define CREDIT_SHOW_MS 4000   /* how long the BALANCE banner stays after a tap */
 
 static void draw_credit(const hub_t *h, uint32_t now)
 {
-  if (h->credit_known && h->credit_balance > 0) {
-    char buf[24];
-    snprintf(buf, sizeof(buf), "BALANCE: %ld", (long)h->credit_balance);
-    vga_text(buf, 20, 8, VGA_GREEN, VGA_FONT_NORMAL);
+  /* balance banner: show briefly after a paid tap, then fade out */
+  if (h->credit_time && now - h->credit_time < CREDIT_SHOW_MS) {
+    char buf[40];
+    if (h->credit_balance > 0)
+      snprintf(buf, sizeof(buf), "BALANCE: %ld   -%ld",
+               (long)h->credit_balance, (long)h->credit_spent);
+    else
+      snprintf(buf, sizeof(buf), "PAID   -%ld", (long)h->credit_spent);
+    vga_text_center(buf, VGA_W / 2, 22, VGA_GREEN, VGA_FONT_NORMAL);
   }
 
   /* transient red overlay after a denied tap */

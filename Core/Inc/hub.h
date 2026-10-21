@@ -88,12 +88,16 @@ typedef struct {
   char          attack_msg[32];
   uint32_t      attack_msg_time;
   int32_t       credit_balance;  /* last known account balance (from CREDIT) */
+  int32_t       credit_spent;    /* amount deducted on the last paid tap */
+  uint32_t      credit_time;     /* tick of last CREDIT_OK (for timed banner) */
   int           credit_known;    /* 1 once any CREDIT packet has been seen */
   uint32_t      deny_time;       /* tick of last denied tap; 0 = none */
   int           deny_reason;     /* PROTO_CREDIT_DENIED / _NO_CARD */
   int           credit_ok;       /* 1 = paid & ready to start (gate open) */
   hub_lb_entry_t lb[HUB_LB_MAX]; /* leaderboard rows (from LEADERBOARD pkts) */
   int           lb_count;        /* how many rows valid */
+  int           new_record;      /* 1 = this game beat the member's best */
+  uint32_t      record_points;   /* the new high score */
   uint32_t      timings[T_COUNT];
   hub_debug_t   stats;
   hub_send_fn   send;

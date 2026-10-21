@@ -29,6 +29,7 @@
 #define PROTO_TYPE_SKIP_WAIT  0x05
 #define PROTO_TYPE_CREDIT     0x06   /* RFID/pay status relayed from ESP32 */
 #define PROTO_TYPE_LEADERBOARD 0x07  /* one leaderboard row relayed from ESP32 */
+#define PROTO_TYPE_NEWRECORD  0x08   /* member beat their high score */
 /* Sent to the Logic board. */
 #define PROTO_TYPE_START      0x10
 #define PROTO_TYPE_ATTACK_TX  0x11
@@ -44,8 +45,9 @@
 #define PROTO_LEN_ATTACK  1
 #define PROTO_LEN_START   5
 #define PROTO_LEN_RESULT  1
-#define PROTO_LEN_CREDIT  5   /* status(1) + balance int32 LE(4) */
+#define PROTO_LEN_CREDIT  9   /* status(1) + balance int32 LE(4) + spent int32 LE(4) */
 #define PROTO_LEN_LEADERBOARD 22   /* rank(1)+count(1)+points u32(4)+name[16] */
+#define PROTO_LEN_NEWRECORD 4      /* points u32 LE */
 
 /* CREDIT status codes (payload byte 0). */
 #define PROTO_CREDIT_DENIED  0   /* tap rejected: not enough balance */
@@ -63,6 +65,7 @@ typedef struct {
 typedef struct {
   uint8_t  status;    /* PROTO_CREDIT_OK / PROTO_CREDIT_DENIED */
   int32_t  balance;   /* account balance after the tap */
+  int32_t  spent;     /* amount deducted for this game */
 } proto_credit_t;
 
 typedef struct {
@@ -101,6 +104,7 @@ void    proto_parse_join(const uint8_t *payload, proto_join_t *out);
 void    proto_parse_state(const uint8_t *payload, proto_state_t *out);
 void    proto_parse_credit(const uint8_t *payload, proto_credit_t *out);
 void    proto_parse_leaderboard(const uint8_t *payload, proto_lb_t *out);
+uint32_t proto_parse_newrecord(const uint8_t *payload);
 uint8_t proto_parse_attack(const uint8_t *payload);
 uint8_t proto_cell_at(const uint8_t *board, int x, int y);
 
