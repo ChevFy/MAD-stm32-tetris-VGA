@@ -16,3 +16,6 @@
 *.list
 *.bin
 *.hex
+
+.claude/
+.settings/
