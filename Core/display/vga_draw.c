@@ -100,6 +100,8 @@ void vga_text_center(const char *s, int cx, int y, uint8_t color, int scale)
 /* seconds, rounded up, from a millisecond duration. */
 static int ceil_secs(uint32_t ms) { return (int)((ms + 999) / 1000); }
 
+static const char *side_name(const hub_t *h, int p, char *buf, int n);
+
 /* --- board ---------------------------------------------------------------- */
 
 static void draw_cell(int x, int y, uint8_t color, int cell)
@@ -140,8 +142,9 @@ static void draw_side_board(const hub_t *h, int p, int ox, int oy, int cell,
 {
   const hub_side_t *side = &h->sides[p];
   char buf[24];
-  snprintf(buf, sizeof(buf), "P%d", p);
-  vga_text(buf, ox, oy - 22, VGA_WHITE, VGA_FONT_SMALL);
+  char nb[20];
+  vga_text(side_name(h, p, nb, sizeof(nb)), ox, oy - 22, VGA_WHITE,
+           VGA_FONT_SMALL);
 
   if (!side->has_state) {
     vga_rect(ox - 2, oy - 2, PROTO_BOARD_W * cell + 2,
@@ -153,12 +156,18 @@ static void draw_side_board(const hub_t *h, int p, int ox, int oy, int cell,
   draw_board(st, ox, oy, cell);
   int px = ox + PROTO_BOARD_W * cell + 12;
   if (compact) {
+    draw_piece_box("NEXT", st->next, px, oy);
+    draw_piece_box("HOLD", st->hold, px, oy + 70);
     snprintf(buf, sizeof(buf), "S %lu", (unsigned long)st->score);
-    vga_text(buf, px, oy, VGA_WHITE, VGA_FONT_SMALL);
+    vga_text(buf, px, oy + 150, VGA_WHITE, VGA_FONT_SMALL);
     snprintf(buf, sizeof(buf), "L %u", st->lines);
-    vga_text(buf, px, oy + 18, VGA_WHITE, VGA_FONT_SMALL);
+    vga_text(buf, px, oy + 168, VGA_WHITE, VGA_FONT_SMALL);
     snprintf(buf, sizeof(buf), "LV %u", st->level);
-    vga_text(buf, px, oy + 36, VGA_WHITE, VGA_FONT_SMALL);
+    vga_text(buf, px, oy + 186, VGA_WHITE, VGA_FONT_SMALL);
+    if (st->garbage_wait > 0) {
+      snprintf(buf, sizeof(buf), "GB %u", st->garbage_wait);
+      vga_text(buf, px, oy + 210, VGA_RED, VGA_FONT_SMALL);
+    }
   } else {
     draw_piece_box("NEXT", st->next, px, oy);
     draw_piece_box("HOLD", st->hold, px, oy + 80);
@@ -190,14 +199,16 @@ static void draw_playing(const hub_t *h, uint32_t now)
     if (h->sides[p].status == SIDE_IN_GAME) players[n++] = p;
 
   if (h->mode == 2 && n == 2) {
-    int cell = 16;
+    int cell = 20;                       /* same board size as single player */
     for (int i = 0; i < n; i++) {
-      int ox = 20 + i * (PROTO_BOARD_W * cell + 100);
+      int ox = 20 + i * (PROTO_BOARD_W * cell + 90);
       draw_side_board(h, players[i], ox, 40, cell, 1);
     }
   } else {
     int p = n ? players[0] : 1;
-    draw_side_board(h, p, 30, 40, 20, 0);
+    int cell = 20;
+    int ox = (VGA_W - PROTO_BOARD_W * cell) / 2;   /* center the play board */
+    draw_side_board(h, p, ox, 40, cell, 0);
   }
   draw_attack_msg(h, now);
 }
@@ -211,20 +222,31 @@ static void column_header(void)
   vga_vline(VGA_W / 2, 30, VGA_H - 90, VGA_GREY);
 }
 
+/* side identity for display: member name, or "PLAYER n" for a guest. */
+static const char *side_name(const hub_t *h, int p, char *buf, int n)
+{
+  const hub_side_t *s = &h->sides[p];
+  if (s->has_join && s->join.name[0]) return s->join.name;
+  snprintf(buf, n, "PLAYER %d", p);
+  return buf;
+}
+
+/* Cost per game. Keep in sync with GAME_PRICE in the ESP32 tetris_pay.ino. */
+#define GAME_PRICE 5
+
 static void draw_lobby_idle(const hub_t *h)
 {
-  vga_text_center("TETRIS", VGA_W / 2, 70, VGA_WHITE, VGA_FONT_BIG);
+  (void)h;
+  char buf[32];
 
-  if (h->credit_ok) {
-    vga_text_center("READY TO PLAY", VGA_W / 2, 175, VGA_GREEN, VGA_FONT_BIG);
-    vga_text_center("PRESS START TO BEGIN", VGA_W / 2, 235, VGA_WHITE,
-                    VGA_FONT_NORMAL);
-  } else {
-    vga_text_center("TAP YOUR CARD TO PLAY", VGA_W / 2, 185, VGA_YELLOW,
-                    VGA_FONT_NORMAL);
-    vga_text_center("PLACE CARD ON THE READER", VGA_W / 2, 225, VGA_GREY,
-                    VGA_FONT_SMALL);
-  }
+  vga_rect(40, 60, VGA_W - 80, VGA_H - 120, VGA_GREY);
+  vga_text_center("TETRIS", VGA_W / 2, 110, VGA_CYAN, VGA_FONT_HUGE);
+  vga_hline(120, 210, VGA_W - 240, VGA_GREY);
+
+  vga_text_center("TAP YOUR CARD TO PLAY", VGA_W / 2, 250, VGA_YELLOW,
+                  VGA_FONT_NORMAL);
+  snprintf(buf, sizeof(buf), "%d CREDITS PER GAME", GAME_PRICE);
+  vga_text_center(buf, VGA_W / 2, 300, VGA_GREEN, VGA_FONT_NORMAL);
 }
 
 static void draw_wait_partner(const hub_t *h, uint32_t now)
@@ -235,18 +257,17 @@ static void draw_wait_partner(const hub_t *h, uint32_t now)
     int p = i + 1;
     const hub_side_t *side = &h->sides[p];
     if (side->status == SIDE_READY) {
+      char nb[20];
       vga_text_center("READY", cx[i], 110, VGA_GREEN, VGA_FONT_NORMAL);
-      if (side->has_join && side->join.name[0])
-        vga_text_center(side->join.name, cx[i], 135, VGA_WHITE, VGA_FONT_NORMAL);
-      vga_text_center("PRESS AGAIN", cx[i], 175, VGA_GREY, VGA_FONT_SMALL);
-      vga_text_center("TO START SOLO", cx[i], 192, VGA_GREY, VGA_FONT_SMALL);
+      vga_text_center(side_name(h, p, nb, sizeof(nb)), cx[i], 135, VGA_WHITE,
+                      VGA_FONT_NORMAL);
     } else {
-      vga_text_center("PRESS TO", cx[i], 120, VGA_GREY, VGA_FONT_NORMAL);
-      vga_text_center("JOIN 2P", cx[i], 142, VGA_GREY, VGA_FONT_NORMAL);
+      vga_text_center("TAP CARD", cx[i], 120, VGA_GREY, VGA_FONT_NORMAL);
+      vga_text_center("TO JOIN", cx[i], 142, VGA_GREY, VGA_FONT_NORMAL);
     }
   }
   char buf[32];
-  snprintf(buf, sizeof(buf), "STARTING 1P IN  %d",
+  snprintf(buf, sizeof(buf), "STARTING IN  %d",
            ceil_secs(hub_countdown_remaining(h, now)));
   vga_text_center(buf, VGA_W / 2, VGA_H - 90, VGA_YELLOW, VGA_FONT_NORMAL);
 }
@@ -279,40 +300,58 @@ static void draw_leaderboard(const hub_t *h, int y)
   }
 }
 
-static void draw_result_show(const hub_t *h)
+/* 2-player: show who won by name, no leaderboard, no score save. */
+static void draw_result_vs(const hub_t *h)
 {
-  /* count sides that actually played, to center a single player */
-  int shown = 0;
+  int winner = 0;
   for (int p = 1; p <= 2; p++)
-    if (!(h->sides[p].result < 0 && !h->sides[p].has_state)) shown++;
+    if (h->sides[p].result == RESULT_WIN) winner = p;
 
-  const int cx2[2] = { VGA_W / 4, 3 * VGA_W / 4 };
-  int idx = 0;
-  for (int p = 1; p <= 2; p++) {
-    const hub_side_t *side = &h->sides[p];
-    if (side->result < 0 && !side->has_state) continue;
-    int cx = (shown == 1) ? VGA_W / 2 : cx2[idx++];
-    if (side->result == RESULT_WIN)
-      vga_text_center("WIN!", cx, 60, VGA_GREEN, VGA_FONT_BIG);
-    else if (side->result == RESULT_LOSE)
-      vga_text_center("LOSE", cx, 60, VGA_RED, VGA_FONT_BIG);
-    else
-      vga_text_center("GAME OVER", cx, 60, VGA_YELLOW, VGA_FONT_NORMAL);
-    char buf[24];
-    uint32_t score = side->has_state ? side->last_state.score : 0;
-    snprintf(buf, sizeof(buf), "SCORE %lu", (unsigned long)score);
-    vga_text_center(buf, cx, 110, VGA_WHITE, VGA_FONT_NORMAL);
+  char nb[20];
+  if (winner) {
+    char line[40];
+    snprintf(line, sizeof(line), "%s WINS!",
+             side_name(h, winner, nb, sizeof(nb)));
+    vga_text_center(line, VGA_W / 2, 180, VGA_GREEN, VGA_FONT_BIG);
+  } else {
+    vga_text_center("GAME OVER", VGA_W / 2, 180, VGA_YELLOW, VGA_FONT_BIG);
   }
+
+  const int cx[2] = { VGA_W / 4, 3 * VGA_W / 4 };
+  for (int p = 1; p <= 2; p++) {
+    char nb2[20];
+    uint32_t score = h->sides[p].has_state ? h->sides[p].last_state.score : 0;
+    char line[40];
+    snprintf(line, sizeof(line), "%s: %lu",
+             side_name(h, p, nb2, sizeof(nb2)), (unsigned long)score);
+    vga_text_center(line, cx[p - 1], 260, VGA_WHITE, VGA_FONT_SMALL);
+  }
+}
+
+/* 1-player: WIN/LOSE + score + NEW HIGH SCORE + leaderboard. */
+static void draw_result_solo(const hub_t *h)
+{
+  const hub_side_t *side = &h->sides[1];
+  vga_text_center("GAME OVER", VGA_W / 2, 60, VGA_YELLOW, VGA_FONT_NORMAL);
+  char buf[24];
+  uint32_t score = side->has_state ? side->last_state.score : 0;
+  snprintf(buf, sizeof(buf), "SCORE %lu", (unsigned long)score);
+  vga_text_center(buf, VGA_W / 2, 110, VGA_WHITE, VGA_FONT_NORMAL);
 
   int lb_y = 170;
   if (h->new_record) {
-    char buf[32];
     vga_text_center("NEW HIGH SCORE!", VGA_W / 2, 150, VGA_GREEN, VGA_FONT_BIG);
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)h->record_points);
     vga_text_center(buf, VGA_W / 2, 200, VGA_YELLOW, VGA_FONT_NORMAL);
     lb_y = 240;
   }
   draw_leaderboard(h, lb_y);
+}
+
+static void draw_result_show(const hub_t *h)
+{
+  if (h->mode == 2) draw_result_vs(h);
+  else              draw_result_solo(h);
 }
 
 static const char *lobby_name(lobby_state_t s)
@@ -342,6 +381,11 @@ static void draw_debug(const hub_t *h, uint32_t now)
 
   vga_text("-- DEBUG --", bx, 8, VGA_WHITE, VGA_FONT_SMALL);
   line = 1;
+  {
+    char lb[32];
+    snprintf(lb, sizeof(lb), "%s M%d", lobby_name(h->lobby), h->mode);
+    vga_text(lb, bx, 8 + line++ * 18, VGA_GREY, VGA_FONT_SMALL);
+  }
   for (int i = 0; i < 8; i++) {
     if (s->pkt_per_sec[i] == 0) continue;
     snprintf(buf, sizeof(buf), "%s: %lu/S",
@@ -446,11 +490,6 @@ void vga_render(const hub_t *h, int show_debug, uint32_t now)
       vga_text_center(line, VGA_W / 2, VGA_H - 60, VGA_YELLOW, VGA_FONT_SMALL);
     }
   }
-
-  char status[40];
-  snprintf(status, sizeof(status), "HUB: %s  MODE:%d",
-           lobby_name(h->lobby), h->mode);
-  vga_text(status, 20, VGA_H - 24, VGA_GREY, VGA_FONT_SMALL);
 
   draw_credit(h, now);
 

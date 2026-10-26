@@ -74,8 +74,8 @@ STM32 PE15 ──[270Ω]──┬── VGA pin1 (RED)
 
 ## เช็กว่าใช้ได้
 
-- LED PB7 (LD2) ควรกะพริบช้า ๆ = LTDC กำลัง scan อยู่ (ดูใน `main.c`).
-- จอควรขึ้นหน้า self-test (PARSER PASS / LOBBY x/x) ~2.5 วิ ตอน boot.
+- LED PB7 (LD2) = ตัวบอก **UART RX** (ติดเมื่อรับ byte จาก LOGIC) — ไม่ใช่ LTDC scan แล้ว.
+- จอ boot ขึ้นหน้า lobby "TETRIS / TAP YOUR CARD TO PLAY".
 - ถ้าจอ "No Signal": เช็ก HSYNC(PC6)/VSYNC(PA4) และ GND ร่วมก่อน.
 - ภาพเลื่อน/ล็อกไม่ติด: ส่วนใหญ่คือ pixel clock — ตั้งที่ PLLSAI ใน `ltdc.c`
   (`HAL_LTDC_MspInit`), เป้าหมาย ~25.2MHz.

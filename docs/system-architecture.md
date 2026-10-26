@@ -119,18 +119,18 @@ Logic → ESP32:
 
 ## 5. ปุ่ม + ไฟ บนบอร์ด
 
-### STM32 Logic — ปุ่ม (ต่อปุ่มระหว่างพิน ↔ GND, active-low pullup; PC13 มีบนบอร์ด)
+### STM32 Logic — ปุ่ม (ต่อปุ่มระหว่างพิน ↔ GND, active-low pullup)
 
-| ปุ่ม | พิน | ในเกม | ในลอบบี้ |
-|------|-----|-------|---------|
-| START | PC13 (ปุ่มน้ำเงิน) | — | join/เริ่ม |
-| LEFT | PF13 | ซ้าย | — |
-| RIGHT | PE9 | ขวา | — |
-| ROTATE | PE11 | หมุนซ้าย | — |
-| HOLD | PF14 | hold ชิ้น | skip wait (เริ่มเดี่ยว) |
-| SOFT_DROP | PF12 | กดค้าง = หล่นเร็ว | — |
+| ปุ่ม | Player 1 | Player 2 |
+|------|----------|----------|
+| LEFT | PF13 | PE10 |
+| RIGHT | PE9 | PE12 |
+| ROTATE | PE11 | PE13 |
+| HOLD | PF14 | PE14 |
+| SOFT_DROP | PF12 | PE15 |
 
-- **LD1 (PB0, เขียว)** = ติดเมื่อรับ pay line จาก ESP32 (ตัวเช็ก USART2 RX)
+- **เริ่มเกม = แตะบัตร** ไม่ใช้ปุ่ม START. แตะ 1 ใบ → รอ 10 วิ; แตะใบ 2 ใน 10 วิ → **2 คน**
+- **LD1 (PB0, เขียว)** = ติดเมื่อรับ pay line จาก ESP32 (เช็ก USART2 RX)
 
 ### STM32 VGA Hub
 

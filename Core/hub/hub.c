@@ -284,9 +284,9 @@ static void on_state(hub_t *h, const proto_state_t *st, uint32_t now)
   side->last_state = *st;
   side->has_state = 1;
   side->last_state_time = now;
+  side->status = SIDE_IN_GAME;      /* any STATE -> that side is in-game */
   if (h->lobby == LOBBY_IDLE || h->lobby == WAIT_PARTNER
       || h->lobby == COUNTDOWN) {
-    side->status = SIDE_IN_GAME;
     h->lobby = PLAYING;
   }
 }
